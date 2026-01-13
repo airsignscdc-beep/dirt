@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>土方快速查詢 - 萬能修復版</title>
+    <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background-color: #f4f7f6; }
+        .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .upload-section { border: 2px dashed #3498db; padding: 20px; text-align: center; margin-bottom: 20px; border-radius: 8px; }
+        .search-box { width: 100%; padding: 15px; margin: 10px 0; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 18px; display:none; }
+        .result-card { border: 1px solid #e0e0e0; padding: 15px; margin-top: 20px; border-radius: 10px; display: none; background: #fafafa; }
+        .data-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .copy-btn { background: #27ae60; color: white; border: none; padding: 8px 12px; border-radius: 5px; cursor: pointer; }
+        #debug-info { font-size: 12px; color: #666; background: #eee; padding: 10px; margin-top: 10px; display: none; word-break: break-all; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2 style="text-align:center;">🚚 土方資料查詢系統</h2>
+    
+    <div class="upload-section">
+        <strong>1. 點擊這裡選擇 Excel 檔案</strong><br><br>
+        <input type="file" id="excel-file" accept=".xlsx, .xls">
+    </div>
+
+    <input type="text" id="search-input" class="search-box" placeholder="輸入車號查詢...">
+    <div id="debug-info"></div>
+
+    <div id="result-card" class="result-card">
+        <div class="data-row"><span>姓名：<b id="res-name"></b></span><button class="copy-btn" onclick="copyText('res-name')">複製</button></div>
+        <div class="data-row"><span>身分證：<b id="res-id"></b></span><button class="copy-btn" onclick="copyText('res-id')">複製</button></div>
+        <div class="data-row"><span>車頭：<b id="res-head"></b></span><button class="copy-btn" onclick="copyText('res-head')">複製</button></div>
+        <div class="data-row"><span>車斗：<b id="res-tail"></b></span><button class="copy-btn" onclick="copyText('res-tail')">複製</button></div>
+    </div>
+</div>
+
+<script>
+    let driverData = [];
+    let fieldMap = { name: '', id: '', head: '', tail: '' };
+
+    document.getElementById('excel-file').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        const debug = document.getElementById('debug-info');
+        
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                
+                // 強制讀取所有內容，不論是否有標題
+                const json = XLSX.utils.sheet_to_json(sheet, {defval: ""});
+                
+                if (json.length === 0) {
+                    alert("檔案讀取成功，但裡面沒資料！");
+                    return;
+                }
+
+                // 清洗資料：去掉所有欄位名稱裡的特殊符號 | 和空格
+                driverData = json.map(row => {
+                    let cleanRow = {};
+                    for (let key in row) {
+                        let cleanKey = key.toString().replace(/[\|\s]/g, "");
+                        cleanRow[cleanKey] = String(row[key]).trim();
+                    }
+                    return cleanRow;
+                });
+
+                // 抓取清洗後的欄位名
+                const firstRowKeys = Object.keys(driverData[0]);
+                debug.style.display = "block";
+                debug.innerText = "偵測到欄位：" + firstRowKeys.join(", ");
+
+                // 自動對應 (只要名稱包含關鍵字就抓)
+                fieldMap.name = firstRowKeys.find(k => k.includes("姓名")) || "";
+                fieldMap.id = firstRowKeys.find(k => k.includes("身分證")) || "";
+                fieldMap.head = firstRowKeys.find(k => k.includes("車頭")) || "";
+                fieldMap.tail = firstRowKeys.find(k => k.includes("車斗")) || "";
+
+                document.getElementById('search-input').style.display = 'block';
+                alert("匯入成功！已讀取 " + driverData.length + " 筆司機資料。");
+            } catch (err) {
+                alert("讀取失敗！錯誤原因：" + err.message);
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    });
+
+    document.getElementById('search-input').addEventListener('input', function() {
+        const val = this.value.toUpperCase().trim();
+        const card = document.getElementById('result-card');
+
+        if (val.length < 2) {
+            card.style.display = 'none';
+            return;
+        }
+
+        const found = driverData.find(d => {
+            const head = String(d[fieldMap.head] || "").toUpperCase();
+            const tail = String(d[fieldMap.tail] || "").toUpperCase();
+            return head.includes(val) || tail.includes(val);
+        });
+
+        if (found) {
+            document.getElementById('res-name').innerText = found[fieldMap.name] || "無";
+            document.getElementById('res-id').innerText = found[fieldMap.id] || "無";
+            document.getElementById('res-head').innerText = found[fieldMap.head] || "無";
+            document.getElementById('res-tail').innerText = found[fieldMap.tail] || "無";
+            card.style.display = 'block';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+
+    function copyText(id) {
+        const text = document.getElementById(id).innerText;
+        const temp = document.createElement('textarea');
+        temp.value = text;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+        alert("已複製: " + text);
+    }
+</script>
+</body>
+</html>
