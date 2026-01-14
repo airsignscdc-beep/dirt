@@ -3,37 +3,42 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>土方快速查詢 - 記憶加強版</title>
+    <title>土方快速查詢 - 智慧防重版</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; background-color: #f4f7f6; }
+        body { font-family: sans-serif; padding: 15px; background-color: #f4f7f6; color: #333; }
         .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         .upload-section { border: 2px dashed #3498db; padding: 15px; text-align: center; margin-bottom: 20px; border-radius: 8px; background: #eef7ff; }
-        .search-box { width: 100%; padding: 15px; margin: 10px 0; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 18px; }
+        .search-box { width: 100%; padding: 15px; margin: 10px 0; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 18px; outline: none; }
+        .search-box:focus { border-color: #3498db; }
+        
+        /* 多筆結果選擇區 */
+        .select-list { margin-top: 10px; display: none; }
+        .select-item { background: #fff; border: 1px solid #3498db; padding: 12px; margin-bottom: 8px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .select-item:active { background: #eef7ff; }
+        .select-item b { color: #d93025; }
+
         .result-card { border: 1px solid #e0e0e0; padding: 15px; margin-top: 20px; border-radius: 10px; display: none; background: #fafafa; }
         .data-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
-        .copy-btn { background: #27ae60; color: white; border: none; padding: 10px; border-radius: 5px; cursor: pointer; }
+        .copy-btn { background: #27ae60; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; }
         .status-bar { font-size: 12px; color: #666; text-align: center; margin-bottom: 10px; }
-        .btn-clear { font-size: 12px; color: #d93025; background: none; border: 1px solid #d93025; padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+        .btn-clear { font-size: 11px; color: #999; border: none; background: none; text-decoration: underline; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2 style="text-align:center;">🚚 土方資料查詢系統</h2>
-    
+    <h2 style="text-align:center; margin-top:0;">🚚 土方資料查詢</h2>
     <div id="status-text" class="status-bar">尚未匯入資料</div>
 
     <div class="upload-section" id="upload-ui">
-        <strong>首次使用：請匯入 Excel 檔案</strong><br><br>
         <input type="file" id="excel-file" accept=".xlsx, .xls">
     </div>
 
     <div id="search-ui" style="display:none;">
-        <input type="text" id="search-input" class="search-box" placeholder="輸入車號查詢...">
-        <div style="text-align: right;">
-            <button class="btn-clear" onclick="clearData()">更換/清除資料庫</button>
-        </div>
+        <input type="text" id="search-input" class="search-box" placeholder="輸入車號數字即可...">
+        <div id="select-list" class="select-list"></div>
+        <div style="text-align: right;"><button class="btn-clear" onclick="clearData()">清除/更新資料</button></div>
     </div>
 
     <div id="result-card" class="result-card">
@@ -47,7 +52,6 @@
 <script>
     let driverData = [];
 
-    // 頁面載入時，檢查瀏覽器是否有舊資料
     window.onload = function() {
         const savedData = localStorage.getItem('truck_data');
         if (savedData) {
@@ -59,14 +63,11 @@
     function showSearchUI() {
         document.getElementById('upload-ui').style.display = 'none';
         document.getElementById('search-ui').style.display = 'block';
-        document.getElementById('status-text').innerText = `✅ 已載入本地資料庫 (${driverData.length} 筆)`;
+        document.getElementById('status-text').innerText = `✅ 資料庫：${driverData.length} 筆`;
     }
 
     function clearData() {
-        if(confirm("確定要清除目前儲存的司機資料嗎？")) {
-            localStorage.removeItem('truck_data');
-            location.reload();
-        }
+        if(confirm("確定要更換資料庫嗎？")) { localStorage.removeItem('truck_data'); location.reload(); }
     }
 
     document.getElementById('excel-file').addEventListener('change', function(e) {
@@ -77,17 +78,13 @@
             const workbook = XLSX.read(data, {type: 'array'});
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const json = XLSX.utils.sheet_to_json(sheet);
-            
             if (json.length > 0) {
-                // 清洗資料並存入本地記憶體
                 driverData = json.map(row => {
                     let clean = {};
                     for (let k in row) { clean[k.replace(/[\|\s]/g, "")] = String(row[k]).trim(); }
                     return clean;
                 });
-                
                 localStorage.setItem('truck_data', JSON.stringify(driverData));
-                alert("資料匯入成功，已儲存在您的手機中！");
                 showSearchUI();
             }
         };
@@ -96,24 +93,45 @@
 
     document.getElementById('search-input').addEventListener('input', function() {
         const val = this.value.toUpperCase().trim();
+        const listUI = document.getElementById('select-list');
         const card = document.getElementById('result-card');
-        if (val.length < 2) { card.style.display = 'none'; return; }
+        
+        listUI.innerHTML = "";
+        card.style.display = 'none';
 
-        const found = driverData.find(d => 
+        if (val.length < 2) return;
+
+        // 找出所有符合的資料
+        const matches = driverData.filter(d => 
             (String(d["車頭車號"] || "").toUpperCase().includes(val)) || 
             (String(d["車斗車號"] || "").toUpperCase().includes(val))
         );
 
-        if (found) {
-            document.getElementById('res-name').innerText = found["姓名"] || found["司機姓名"] || "無";
-            document.getElementById('res-id').innerText = found["身分證"] || "無";
-            document.getElementById('res-head').innerText = found["車頭車號"] || "無";
-            document.getElementById('res-tail').innerText = found["車斗車號"] || "無";
-            card.style.display = 'block';
-        } else {
-            card.style.display = 'none';
+        if (matches.length === 1) {
+            displayResult(matches[0]);
+        } else if (matches.length > 1) {
+            listUI.style.display = 'block';
+            matches.forEach((d, index) => {
+                const item = document.createElement('div');
+                item.className = 'select-item';
+                item.innerHTML = `<div><b>${d["車頭車號"]}</b> (${d["姓名"]})</div> <span>選取 ></span>`;
+                item.onclick = () => {
+                    displayResult(d);
+                    listUI.style.display = 'none';
+                };
+                listUI.appendChild(item);
+            });
         }
     });
+
+    function displayResult(data) {
+        document.getElementById('res-name').innerText = data["姓名"] || "無";
+        document.getElementById('res-id').innerText = data["身分證"] || "無";
+        document.getElementById('res-head').innerText = data["車頭車號"] || "無";
+        document.getElementById('res-tail').innerText = data["車斗車號"] || "無";
+        document.getElementById('result-card').style.display = 'block';
+        document.getElementById('select-list').style.display = 'none';
+    }
 
     function copyText(id) {
         const text = document.getElementById(id).innerText;
@@ -124,8 +142,9 @@
         document.execCommand('copy');
         document.body.removeChild(temp);
         const btn = event.target;
-        btn.innerText = "已複製";
-        setTimeout(() => btn.innerText = "複製", 800);
+        const old = btn.innerText;
+        btn.innerText = "OK";
+        setTimeout(() => btn.innerText = old, 800);
     }
 </script>
 </body>
