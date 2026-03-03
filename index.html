@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>土方快速查詢 - 智慧防重版</title>
+    <title>土方快速查詢 - 自訂排序版</title>
     <script src="https://cdn.sheetjs.com/xlsx-0.19.3/package/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 15px; background-color: #f4f7f6; color: #333; }
         .container { max-width: 500px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
@@ -18,11 +19,20 @@
         .select-item:active { background: #eef7ff; }
         .select-item b { color: #d93025; }
 
-        .result-card { border: 1px solid #e0e0e0; padding: 15px; margin-top: 20px; border-radius: 10px; display: none; background: #fafafa; }
-        .data-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+        .result-card { border: 1px solid #e0e0e0; padding: 15px; margin-top: 20px; border-radius: 10px; display: none; background: #fafafa; position: relative; }
+        
+        /* 排序功能相關樣式 */
+        .edit-bar { display: flex; justify-content: flex-end; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed #ccc; }
+        .btn-edit { font-size: 12px; padding: 6px 12px; border: 1px solid #3498db; border-radius: 4px; background: white; color: #3498db; cursor: pointer; }
+        .data-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 8px; background: #fafafa; transition: background 0.3s; }
         .copy-btn { background: #27ae60; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; }
         .status-bar { font-size: 12px; color: #666; text-align: center; margin-bottom: 10px; }
         .btn-clear { font-size: 11px; color: #999; border: none; background: none; text-decoration: underline; cursor: pointer; }
+
+        /* 調整模式啟動時的樣式 */
+        .editing .data-row { background: #fffde7; border: 1px dashed #f39c12; cursor: grab; padding: 10px; border-radius: 5px; }
+        .editing .data-row:active { cursor: grabbing; }
+        .editing .copy-btn { pointer-events: none; opacity: 0.5; } /* 調整時停用複製按鈕防誤觸 */
     </style>
 </head>
 <body>
@@ -42,15 +52,34 @@
     </div>
 
     <div id="result-card" class="result-card">
-        <div class="data-row"><span>姓名：<b id="res-name"></b></span><button class="copy-btn" onclick="copyText('res-name')">複製</button></div>
-        <div class="data-row"><span>身分證：<b id="res-id"></b></span><button class="copy-btn" onclick="copyText('res-id')">複製</button></div>
-        <div class="data-row"><span>車頭：<b id="res-head"></b></span><button class="copy-btn" onclick="copyText('res-head')">複製</button></div>
-        <div class="data-row"><span>車斗：<b id="res-tail"></b></span><button class="copy-btn" onclick="copyText('res-tail')">複製</button></div>
+        <div class="edit-bar">
+            <button class="btn-edit" id="btn-edit" onclick="toggleEditMode()">🛠 開啟調整順序</button>
+        </div>
+        
+        <div id="sortable-list">
+            <div class="data-row" data-id="row-name">
+                <span>姓名：<b id="res-name"></b></span>
+                <button class="copy-btn" onclick="copyText('res-name')">複製</button>
+            </div>
+            <div class="data-row" data-id="row-id">
+                <span>身分證：<b id="res-id"></b></span>
+                <button class="copy-btn" onclick="copyText('res-id')">複製</button>
+            </div>
+            <div class="data-row" data-id="row-head">
+                <span>車頭：<b id="res-head"></b></span>
+                <button class="copy-btn" onclick="copyText('res-head')">複製</button>
+            </div>
+            <div class="data-row" data-id="row-tail">
+                <span>車斗：<b id="res-tail"></b></span>
+                <button class="copy-btn" onclick="copyText('res-tail')">複製</button>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
     let driverData = [];
+    let sortableInstance = null;
 
     window.onload = function() {
         const savedData = localStorage.getItem('truck_data');
@@ -58,6 +87,7 @@
             driverData = JSON.parse(savedData);
             showSearchUI();
         }
+        initSortable();
     };
 
     function showSearchUI() {
@@ -68,6 +98,49 @@
 
     function clearData() {
         if(confirm("確定要更換資料庫嗎？")) { localStorage.removeItem('truck_data'); location.reload(); }
+    }
+
+    // 初始化排序功能
+    function initSortable() {
+        const el = document.getElementById('sortable-list');
+        sortableInstance = Sortable.create(el, {
+            disabled: true, // 預設關閉防誤觸
+            animation: 150,
+            onEnd: function () {
+                // 拖曳結束後儲存順序
+                const order = sortableInstance.toArray();
+                localStorage.setItem('field_order', JSON.stringify(order));
+            }
+        });
+
+        // 載入之前儲存的順序
+        const savedOrder = localStorage.getItem('field_order');
+        if (savedOrder) {
+            sortableInstance.sort(JSON.parse(savedOrder));
+        }
+    }
+
+    // 切換調整模式
+    function toggleEditMode() {
+        const el = document.getElementById('sortable-list');
+        const btn = document.getElementById('btn-edit');
+        const isDisabled = sortableInstance.options.disabled;
+
+        if (isDisabled) {
+            // 開啟調整
+            sortableInstance.option('disabled', false);
+            el.classList.add('editing');
+            btn.innerText = "✅ 完成並儲存";
+            btn.style.background = "#3498db";
+            btn.style.color = "white";
+        } else {
+            // 關閉調整
+            sortableInstance.option('disabled', true);
+            el.classList.remove('editing');
+            btn.innerText = "🛠 開啟調整順序";
+            btn.style.background = "white";
+            btn.style.color = "#3498db";
+        }
     }
 
     document.getElementById('excel-file').addEventListener('change', function(e) {
